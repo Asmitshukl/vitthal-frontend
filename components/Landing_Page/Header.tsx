@@ -15,7 +15,7 @@ export function Header() {
   const [profileDropdown, setProfileDropdown] = useState(false);
   const [notifDropdown, setNotifDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLLIElement>(null);
   const { user, isAuthenticated, isLoading, fetchUser, logout } = useAuthStore();
   const totalItems = useCartStore((s) => s.items.length);
   const { notifications, unreadCount, fetchNotifications, fetchUnreadCount, markRead, markAllRead } = useNotificationStore();
