@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import ProductImageGallery from "@/components/ProductImageGallery";
 import { useCartStore } from "@/store/cartStore";
+import { useQuotationCartStore } from "@/store/quotationCartStore";
 import { useWishlistStore } from "@/store/wishlistStore";
 import { toast } from "sonner";
 import {
@@ -33,6 +34,8 @@ type Vendor = {
   price: number | string;
   moq: number;
   stock_quantity: number;
+  quotation_enabled?: boolean;
+  quotation_min_qty?: number | null;
   rating: number;
   review_count: number;
   latitude: number | null;
@@ -144,6 +147,8 @@ export default function ProductDetailPage() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const addItem = useCartStore((s) => s.addItem);
   const fetchCart = useCartStore((s) => s.fetchCart);
+  const addQuotationItem = useQuotationCartStore((s) => s.addItem);
+  const fetchQuotationCart = useQuotationCartStore((s) => s.fetchCart);
   const addToWishlist = useWishlistStore((s) => s.addItem);
   const totalItems = useCartStore((s) => s.items.length);
   const [addingVendorId, setAddingVendorId] = useState<string | null>(null);
@@ -259,9 +264,34 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = async (vendor: Vendor) => {
     if (!product) return;
-    const qty = quantities[vendor.vendor_id] || vendor.moq || 1;
-    
+    const quantity = quantities[vendor.vendor_id] || vendor.moq || 1;
+    const quotationMinQty = vendor.quotation_min_qty ? Number(vendor.quotation_min_qty) : null;
+    const requiresQuotation = Boolean(vendor.quotation_enabled) && quotationMinQty !== null && quantity >= quotationMinQty;
+
     setAddingVendorId(vendor.vendor_id);
+    
+    if (requiresQuotation) {
+      const quoteSuccess = await addQuotationItem({
+        productId: product.product_id,
+        productName: product.product_name,
+        image: product.images?.[0]?.image_url || "",
+        price: Number(vendor.price) || 0,
+        moq: vendor.moq,
+        quotationMinQty: quotationMinQty,
+        quotationEnabled: vendor.quotation_enabled,
+        quantity,
+        vendorId: vendor.vendor_id,
+        vendorName: "",
+      });
+      if (quoteSuccess) {
+        toast.success("Added to quotation cart");
+        await fetchQuotationCart(true);
+      } else {
+        toast.error("Failed to add to quotation cart");
+      }
+      setAddingVendorId(null);
+      return;
+    }
     
     const success = await addItem({
       productId: product.product_id,
@@ -269,7 +299,7 @@ export default function ProductDetailPage() {
       image: product.images?.find((img) => img.is_primary)?.image_url || product.images?.[0]?.image_url || "",
       price: typeof vendor.price === "string" ? parseFloat(vendor.price) || 0 : vendor.price || 0,
       moq: vendor.moq || 1,
-      quantity: qty,
+      quantity,
       vendorId: vendor.vendor_id,
       vendorName: `Vendor #${vendor.vendor_id.slice(0, 8)}`,
     });
@@ -277,7 +307,7 @@ export default function ProductDetailPage() {
     setAddingVendorId(null);
     
     if (success) {
-      toast.success(`Added ${qty} units to cart from Vendor #${vendor.vendor_id.slice(0, 8)}`);
+      toast.success(`Added ${quantity} units to cart from Vendor #${vendor.vendor_id.slice(0, 8)}`);
       await fetchCart();
     } else {
       toast.error("Failed to add item. Please login.");
@@ -652,6 +682,8 @@ export default function ProductDetailPage() {
                       const qty = quantities[v.vendor_id] || v.moq || 1;
                       const price = typeof v.price === "string" ? parseFloat(v.price) || 0 : v.price || 0;
                       const totalPrice = price * qty;
+                      const quotationMinQty = v.quotation_min_qty ? Number(v.quotation_min_qty) : null;
+                      const requiresQuotation = Boolean(v.quotation_enabled) && quotationMinQty !== null && qty >= quotationMinQty;
                       const isRanked = rankedVendors.length > 0 && "rank" in v;
                       const ranked = v as RankedVendor;
                       
@@ -713,6 +745,12 @@ export default function ProductDetailPage() {
                                 )}
                               </div>
 
+                              {v.quotation_enabled && quotationMinQty !== null && (
+                                <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                                  Quotation required for {quotationMinQty}+ units
+                                </div>
+                              )}
+
                             </div>
 
                             {/* Quantity & Add to Cart */}
@@ -771,14 +809,14 @@ export default function ProductDetailPage() {
                                 <button 
                                   onClick={() => handleAddToCart(v)}
                                   disabled={addingVendorId === v.vendor_id}
-                                  className="px-5 py-2.5 bg-[#1d4ed8] text-white text-sm font-semibold rounded-lg hover:bg-blue-800 hover:shadow-md transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed"
+                                  className={`px-5 py-2.5 text-white text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed ${requiresQuotation ? "bg-amber-600 hover:bg-amber-700" : "bg-[#1d4ed8] hover:bg-blue-800"}`}
                                 >
                                   {addingVendorId === v.vendor_id ? (
                                     <Loader2 size={16} className="animate-spin" />
                                   ) : (
                                     <ShoppingCart size={16} />
                                   )}
-                                  {addingVendorId === v.vendor_id ? "Adding..." : "Add to Cart"}
+                                  {addingVendorId === v.vendor_id ? "Adding..." : requiresQuotation ? "Request Quote" : "Add to Cart"}
                                 </button>
                               </div>
                             </div>

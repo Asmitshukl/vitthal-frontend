@@ -261,11 +261,7 @@ export default function WishlistPage() {
                     <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
                       <span className="rounded-full bg-zinc-100 px-3 py-1 font-medium text-zinc-700">MOQ: {item.moq} units</span>
                       <span className="rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-700">₹{item.price > 0 ? item.price.toLocaleString() : "Contact"}</span>
-                      {item.vendorName && (
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
-                          {item.vendorName}
-                        </span>
-                      )}
+
                     </div>
 
                     <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -2,42 +2,45 @@ import { create } from "zustand";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9000";
 
-export type CartItem = {
+export type QuotationCartItem = {
   productId: string;
   productName: string;
   image: string;
   price: number;
   moq: number;
+  quotationMinQty?: number | null;
+  quotationEnabled?: boolean;
   quantity: number;
   vendorId: string;
   vendorName: string;
 };
 
-type CartApiRow = {
+type QuotationCartApiRow = {
   product_id: string;
   product_name?: string | null;
   image_url?: string | null;
   price_at_added: string | number;
   moq?: number | null;
+  quotation_enabled?: boolean | null;
+  quotation_min_qty?: number | null;
   quantity: number;
   vendor_id: string;
   vendor_name?: string | null;
 };
 
-type CartState = {
-  items: CartItem[];
+type QuotationCartState = {
+  items: QuotationCartItem[];
   isLoading: boolean;
   error: string | null;
   fetchCart: (silent?: boolean) => Promise<void>;
-  addItem: (item: CartItem) => Promise<boolean>;
+  addItem: (item: QuotationCartItem) => Promise<boolean>;
   removeItem: (productId: string, vendorId: string) => Promise<boolean>;
   updateQuantity: (productId: string, vendorId: string, quantity: number) => Promise<boolean>;
   clearCart: () => Promise<boolean>;
   totalItems: () => number;
-  totalPrice: () => number;
 };
 
-export const useCartStore = create<CartState>((set, get) => ({
+export const useQuotationCartStore = create<QuotationCartState>((set, get) => ({
   items: [],
   isLoading: true,
   error: null,
@@ -45,9 +48,8 @@ export const useCartStore = create<CartState>((set, get) => ({
   fetchCart: async (silent = false) => {
     if (!silent) set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`${API_BASE}/api/cart`, {
+      const res = await fetch(`${API_BASE}/api/cart?type=quotation`, {
         credentials: "include",
-
         headers: {
           "Content-Type": "application/json",
           "x-request-from": "client",
@@ -58,24 +60,25 @@ export const useCartStore = create<CartState>((set, get) => ({
           set({ items: [], isLoading: false });
           return;
         }
-        throw new Error("Failed to fetch cart");
+        throw new Error("Failed to fetch quotation cart");
       }
       const data = await res.json();
-      // Transform backend data to frontend format
-      const items: CartItem[] = ((data.data as CartApiRow[] | undefined) || []).map((row) => ({
+      const items: QuotationCartItem[] = ((data.data as QuotationCartApiRow[] | undefined) || []).map((row) => ({
         productId: row.product_id,
         productName: row.product_name || "Unknown Product",
         image: row.image_url || "",
         price: Number(row.price_at_added) || 0,
         moq: row.moq || 1,
+        quotationEnabled: Boolean(row.quotation_enabled),
+        quotationMinQty: row.quotation_min_qty ?? null,
         quantity: row.quantity,
         vendorId: row.vendor_id,
         vendorName: row.vendor_name || "Unknown Vendor",
       }));
       set({ items, isLoading: false });
     } catch (err) {
-      console.error("fetchCart error:", err);
-      set({ error: "Failed to load cart", isLoading: false });
+      console.error("fetch quotation cart error:", err);
+      set({ error: "Failed to load quotation cart", isLoading: false });
     }
   },
 
@@ -92,15 +95,14 @@ export const useCartStore = create<CartState>((set, get) => ({
           product_id: item.productId,
           vendor_id: item.vendorId,
           quantity: item.quantity,
+          cart_type: "quotation",
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        if (res.status === 401) throw new Error("Please login to add items");
+        const data = await res.json();
         throw new Error(data.message || "Failed to add item");
       }
-      // Refresh cart to get updated data
-      await get().fetchCart();
+      await get().fetchCart(true);
       return true;
     } catch (err) {
       console.error("addItem error:", err);
@@ -118,7 +120,7 @@ export const useCartStore = create<CartState>((set, get) => ({
           "x-request-from": "client",
         },
         credentials: "include",
-        body: JSON.stringify({ product_id: productId, vendor_id: vendorId }),
+        body: JSON.stringify({ product_id: productId, vendor_id: vendorId, cart_type: "quotation" }),
       });
       if (!res.ok) throw new Error("Failed to remove item");
       await get().fetchCart(true);
@@ -140,10 +142,12 @@ export const useCartStore = create<CartState>((set, get) => ({
           "x-request-from": "client",
         },
         credentials: "include",
-        body: JSON.stringify({ product_id: productId, vendor_id: vendorId, quantity }),
+        body: JSON.stringify({ product_id: productId, vendor_id: vendorId, quantity, cart_type: "quotation" }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to update quantity");
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to update quantity");
+      }
       await get().fetchCart(true);
       return true;
     } catch (err) {
@@ -155,7 +159,7 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   clearCart: async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/cart`, {
+      const res = await fetch(`${API_BASE}/api/cart?type=quotation`, {
         method: "DELETE",
         credentials: "include",
         headers: {
@@ -174,7 +178,4 @@ export const useCartStore = create<CartState>((set, get) => ({
   },
 
   totalItems: () => get().items.reduce((sum, i) => sum + i.quantity, 0),
-
-  totalPrice: () =>
-    get().items.reduce((sum, i) => sum + i.price * i.quantity, 0),
 }));

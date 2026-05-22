@@ -229,6 +229,40 @@ export default function CartPage() {
           <span className="text-zinc-800 font-medium">Cart</span>
         </nav>
 
+        <div className="mb-6 grid gap-4 md:grid-cols-2">
+          <Link
+            href="/cart"
+            className="group rounded-xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Cart #1</p>
+                <h2 className="mt-1 text-lg font-semibold text-blue-900">Direct Order Cart</h2>
+                <p className="mt-1 text-sm text-blue-700">Instant checkout for standard quantities.</p>
+              </div>
+              <div className="rounded-full bg-blue-600/10 px-3 py-1 text-xs font-semibold text-blue-700">
+                Active
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/quotation-cart"
+            className="group rounded-xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Cart #2</p>
+                <h2 className="mt-1 text-lg font-semibold text-amber-900">Quotation Cart</h2>
+                <p className="mt-1 text-sm text-amber-700">Negotiate pricing for large quantities.</p>
+              </div>
+              <div className="rounded-full bg-amber-600/10 px-3 py-1 text-xs font-semibold text-amber-700">
+                Open
+              </div>
+            </div>
+          </Link>
+        </div>
+
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-semibold text-zinc-900">Shopping Cart</h1>
           <button
@@ -260,7 +294,6 @@ export default function CartPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <Link href={`/product/${item.productId}`} className="text-sm font-semibold text-zinc-900 truncate hover:text-[#1d4ed8] transition-colors">{item.productName}</Link>
-                        <p className="text-xs text-zinc-500 mt-0.5">Supplier: {item.vendorName}</p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
                         <button
@@ -351,6 +384,13 @@ export default function CartPage() {
               >
                 <ArrowLeft size={14} />
                 Continue Shopping
+              </Link>
+
+              <Link
+                href="/quotation-cart"
+                className="mt-2 flex items-center justify-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-800 transition-colors"
+              >
+                Request quotations
               </Link>
             </div>
           </div>
