@@ -20,6 +20,10 @@ import {
   RotateCcw,
   PackageCheck,
   Send,
+  Navigation,
+  ArrowRight,
+  ChevronRight,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -49,6 +53,8 @@ interface FulfillmentEntry {
   fulfillment_status: string;
   fulfillment_note: string | null;
   fulfillment_updated_at: string;
+  stop_sequence: number | null;
+  location_label: string | null;
   center_id: string | null;
   center_name: string | null;
   center_address: string | null;
@@ -58,6 +64,21 @@ interface FulfillmentEntry {
   center_pincode: string | null;
   center_latitude: number | null;
   center_longitude: number | null;
+}
+
+interface RoutePlanStop {
+  id: string;
+  stop_sequence: number;
+  fulfillment_center_id: string;
+  center_name: string;
+  center_city: string;
+  center_state: string;
+  center_pincode: string | null;
+  center_latitude: number | null;
+  center_longitude: number | null;
+  estimated_arrival: string | null;
+  actual_arrival: string | null;
+  status: string; // upcoming | in_transit | arrived | departed
 }
 
 interface OrderData {
@@ -78,6 +99,10 @@ interface OrderData {
   order_notes: string | null;
   vendor_name: string;
   vendor_id: string;
+  vendor_city: string | null;
+  vendor_state: string | null;
+  vendor_latitude: number | null;
+  vendor_longitude: number | null;
 }
 
 interface TrackingData {
@@ -85,6 +110,7 @@ interface TrackingData {
   items: OrderItem[];
   statusHistory: StatusHistoryEntry[];
   fulfillmentTracking: FulfillmentEntry[];
+  routePlan: RoutePlanStop[];
 }
 
 // ── Order flow definition ───────────────────────────────────────────────
@@ -190,6 +216,268 @@ function getFulfillmentIcon(status: string) {
   }
 }
 
+// ── Route Journey Map Component ─────────────────────────────────────────
+
+function RouteJourneyMap({
+  routePlan,
+  order,
+}: {
+  routePlan: RoutePlanStop[];
+  order: OrderData;
+}) {
+  // Build the full journey: Seller → FC stops → Customer
+  const sellerLocation = order.vendor_city && order.vendor_state
+    ? `${order.vendor_city}, ${order.vendor_state}`
+    : order.vendor_name;
+
+  const buyerLocation = `${order.city}, ${order.state}`;
+
+  const getStopStatusStyle = (status: string) => {
+    switch (status) {
+      case "departed":
+      case "arrived":
+        return {
+          ring: "ring-emerald-500 bg-emerald-500",
+          icon: "text-white",
+          label: "text-emerald-700",
+          line: "bg-emerald-500",
+          badge: "bg-emerald-100 text-emerald-700",
+          badgeText: status === "departed" ? "Departed" : "Arrived",
+        };
+      case "in_transit":
+        return {
+          ring: "ring-blue-500 bg-blue-500 animate-pulse",
+          icon: "text-white",
+          label: "text-blue-700",
+          line: "bg-gradient-to-r from-emerald-500 to-blue-400",
+          badge: "bg-blue-100 text-blue-700",
+          badgeText: "In Transit",
+        };
+      default:
+        return {
+          ring: "ring-zinc-300 bg-white",
+          icon: "text-zinc-400",
+          label: "text-zinc-400",
+          line: "bg-zinc-200",
+          badge: "bg-zinc-100 text-zinc-500",
+          badgeText: "Upcoming",
+        };
+    }
+  };
+
+  // Calculate overall journey progress
+  const totalStops = routePlan.length + 2; // seller + FCs + buyer
+  const completedStops = routePlan.filter(
+    (s) => s.status === "departed" || s.status === "arrived"
+  ).length;
+  const inTransitStops = routePlan.filter((s) => s.status === "in_transit").length;
+  const isDelivered = order.status.toLowerCase() === "delivered";
+  const isOrderShipped = ["shipped", "delivered"].includes(order.status.toLowerCase());
+
+  // Seller is always "done" once order is processing
+  const sellerDone = order.status.toLowerCase() !== "pending";
+  const buyerDone = isDelivered;
+
+  const progressPercent = isDelivered
+    ? 100
+    : ((1 + completedStops + inTransitStops * 0.5) / (totalStops - 1)) * 100;
+
+  return (
+    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-5 border-b border-zinc-100 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+            <Navigation className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-zinc-900">Shipment Journey</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              {routePlan.length} fulfillment {routePlan.length === 1 ? "center" : "centers"} on route
+            </p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold text-zinc-900">
+            {Math.round(progressPercent)}%
+          </p>
+          <p className="text-xs text-zinc-500">Journey Complete</p>
+        </div>
+      </div>
+
+      {/* Overall progress bar */}
+      <div className="px-6 pt-4">
+        <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r from-emerald-500 via-blue-500 to-indigo-500"
+            style={{ width: `${Math.min(progressPercent, 100)}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Journey stops */}
+      <div className="p-6">
+        <div className="space-y-0">
+          {/* ── Seller Origin ──────────────── */}
+          <div className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-11 h-11 rounded-full flex items-center justify-center ring-2 shrink-0 ${
+                  sellerDone
+                    ? "ring-emerald-500 bg-emerald-500"
+                    : "ring-amber-400 bg-amber-400 animate-pulse"
+                }`}
+              >
+                <Store className="w-5 h-5 text-white" />
+              </div>
+              {(routePlan.length > 0 || true) && (
+                <div
+                  className={`w-0.5 flex-1 min-h-[40px] ${
+                    sellerDone && routePlan.length > 0
+                      ? routePlan[0].status !== "upcoming"
+                        ? "bg-emerald-500"
+                        : "bg-gradient-to-b from-emerald-500 to-zinc-200"
+                      : "bg-zinc-200"
+                  }`}
+                />
+              )}
+            </div>
+            <div className="pb-6 flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-zinc-900">Seller Location</p>
+                {sellerDone && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                    <CheckCircle2 className="w-3 h-3" /> Picked Up
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-zinc-500 mt-0.5">{sellerLocation}</p>
+              <p className="text-xs text-zinc-400 mt-1">
+                Order placed: {formatDateTime(order.created_at)}
+              </p>
+            </div>
+          </div>
+
+          {/* ── FC Stops ──────────────── */}
+          {routePlan.map((stop, index) => {
+            const styles = getStopStatusStyle(stop.status);
+            const isLast = index === routePlan.length - 1;
+            const nextStop = routePlan[index + 1];
+
+            return (
+              <div key={stop.id} className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div
+                    className={`w-11 h-11 rounded-full flex items-center justify-center ring-2 shrink-0 ${styles.ring}`}
+                  >
+                    <Warehouse className={`w-5 h-5 ${styles.icon}`} />
+                  </div>
+                  <div
+                    className={`w-0.5 flex-1 min-h-[40px] ${
+                      stop.status === "departed"
+                        ? isLast
+                          ? isDelivered || isOrderShipped
+                            ? "bg-emerald-500"
+                            : nextStop?.status !== "upcoming"
+                              ? "bg-emerald-500"
+                              : "bg-gradient-to-b from-emerald-500 to-zinc-200"
+                          : nextStop?.status !== "upcoming"
+                            ? "bg-emerald-500"
+                            : "bg-gradient-to-b from-emerald-500 to-zinc-200"
+                        : stop.status === "in_transit" || stop.status === "arrived"
+                          ? "bg-gradient-to-b from-blue-400 to-zinc-200"
+                          : "bg-zinc-200"
+                    }`}
+                  />
+                </div>
+                <div className="pb-6 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className={`text-sm font-bold ${
+                      stop.status === "upcoming" ? "text-zinc-400" : "text-zinc-900"
+                    }`}>
+                      {stop.center_name}
+                    </p>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${styles.badge}`}
+                    >
+                      {stop.status === "departed" && <CheckCircle2 className="w-3 h-3" />}
+                      {stop.status === "in_transit" && <Truck className="w-3 h-3" />}
+                      {stop.status === "arrived" && <MapPin className="w-3 h-3" />}
+                      {styles.badgeText}
+                    </span>
+                  </div>
+                  <p className={`text-sm mt-0.5 ${
+                    stop.status === "upcoming" ? "text-zinc-400" : "text-zinc-500"
+                  }`}>
+                    {stop.center_city}, {stop.center_state}
+                    {stop.center_pincode && ` — ${stop.center_pincode}`}
+                  </p>
+
+                  {/* ETA or actual arrival */}
+                  <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+                    {stop.actual_arrival && (
+                      <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Arrived: {formatDateTime(stop.actual_arrival)}
+                      </span>
+                    )}
+                    {!stop.actual_arrival && stop.estimated_arrival && (
+                      <span className="inline-flex items-center gap-1 text-xs text-zinc-400 font-medium">
+                        <Calendar className="w-3 h-3" />
+                        ETA: {formatDate(stop.estimated_arrival)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* ── Customer Destination ──────────────── */}
+          <div className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-11 h-11 rounded-full flex items-center justify-center ring-2 shrink-0 ${
+                  buyerDone
+                    ? "ring-emerald-500 bg-emerald-500"
+                    : "ring-zinc-300 bg-white"
+                }`}
+              >
+                <MapPin
+                  className={`w-5 h-5 ${buyerDone ? "text-white" : "text-zinc-400"}`}
+                />
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p
+                  className={`text-sm font-bold ${
+                    buyerDone ? "text-zinc-900" : "text-zinc-400"
+                  }`}
+                >
+                  Your Delivery Address
+                </p>
+                {buyerDone && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                    <CheckCircle2 className="w-3 h-3" /> Delivered
+                  </span>
+                )}
+              </div>
+              <p
+                className={`text-sm mt-0.5 ${
+                  buyerDone ? "text-zinc-500" : "text-zinc-400"
+                }`}
+              >
+                {buyerLocation} — {order.pincode}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ───────────────────────────────────────────────────────────
 
 export default function OrderTrackingPage() {
@@ -279,7 +567,7 @@ export default function OrderTrackingPage() {
     );
   }
 
-  const { order, items, statusHistory, fulfillmentTracking } = trackingData;
+  const { order, items, statusHistory, fulfillmentTracking, routePlan } = trackingData;
   const currentStatus = order.status.toLowerCase();
   const isCancelled = currentStatus === "cancelled";
   const isRefunded = currentStatus === "refunded";
@@ -377,6 +665,54 @@ export default function OrderTrackingPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Route Journey Map ─────────────────────────────────────── */}
+            {routePlan && routePlan.length > 0 && !isCancelled && !isRefunded && (
+              <RouteJourneyMap routePlan={routePlan} order={order} />
+            )}
+
+            {/* ── No route plan info (direct delivery) ─────────────────── */}
+            {(!routePlan || routePlan.length === 0) && !isCancelled && !isRefunded && currentStatus !== "pending" && (
+              <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                    <Navigation className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-zinc-900">Shipment Journey</h2>
+                    <p className="text-xs text-zinc-500 mt-0.5">Direct delivery</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center">
+                      <Store className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 font-medium">From</p>
+                      <p className="text-sm font-bold text-zinc-900">
+                        {order.vendor_city ? `${order.vendor_city}, ${order.vendor_state}` : order.vendor_name}
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-5 h-5 text-blue-400 mx-2 shrink-0" />
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+                      <MapPin className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 font-medium">To</p>
+                      <p className="text-sm font-bold text-zinc-900">
+                        {order.city}, {order.state}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-400 mt-3">
+                  No intermediate fulfillment centers on this route. Your order will be delivered directly.
+                </p>
+              </div>
+            )}
 
             {/* ── Unified Tracking Timeline ─────────────────────────────── */}
             {(() => {
@@ -625,7 +961,7 @@ export default function OrderTrackingPage() {
                   <Store className="w-4 h-4 text-zinc-400" />
                   <span className="text-sm text-zinc-500">Vendor</span>
                 </div>
-                <p className="text-sm font-semibold text-blue-600 -mt-1">Vendor #{order.vendor_id?.slice(0, 8)}</p>
+                <p className="text-sm font-semibold text-blue-600 -mt-1">{order.vendor_name || `Vendor #${order.vendor_id?.slice(0, 8)}`}</p>
               </div>
             </div>
 
