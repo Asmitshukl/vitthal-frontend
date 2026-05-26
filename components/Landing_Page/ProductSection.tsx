@@ -34,7 +34,6 @@ export function ProductSection({
   viewAllHref,
   bg = "white",
 }: ProductSectionProps) {
-  console.log("[ProductSection] product ids:", products.map((product) => product.id));
   return (
     <section
       id={id}

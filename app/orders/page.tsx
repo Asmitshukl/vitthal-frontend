@@ -68,7 +68,6 @@ export default function OrdersPage() {
         setOrders(data.data || []);
       } else {
         const data = await res.json();
-        console.log(data);
         toast.error("Failed to load orders");
       }
     } catch (err) {

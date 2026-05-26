@@ -14,6 +14,7 @@ type AuthState = {
   setUser: (user: User) => void;
   clearUser: () => void;
   fetchUser: () => Promise<void>;
+  checkClientSetupStatus: () => Promise<boolean>;
   logout: () => Promise<void>;
 };
 
@@ -46,6 +47,27 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     } catch {
       set({ user: null, isAuthenticated: false, isLoading: false });
+    }
+  },
+
+  checkClientSetupStatus: async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/client/checkSetupStatus`, {
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-from": "client",
+        },
+      });
+
+      if (!res.ok) {
+        return false;
+      }
+
+      const data = await res.json();
+      return Boolean(data.isSetupComplete);
+    } catch {
+      return false;
     }
   },
 

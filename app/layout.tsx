@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Outfit, Montserrat } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { Footer, Header } from "@/components/Landing_Page";
 import { Toaster } from "@/components/ui/sonner";
+import { consoleGuardScript, isProduction } from "@/lib/consoleGuard";
 
 const outfit = Outfit({
   variable: "--font-heading",
@@ -35,6 +37,13 @@ export default function RootLayout({
       <body
         className={`${outfit.variable} ${montserrat.variable} min-h-full flex flex-col font-body`}
       >
+        {isProduction ? (
+          <Script
+            id="console-guard"
+            strategy="beforeInteractive"
+            dangerouslySetInnerHTML={{ __html: consoleGuardScript }}
+          />
+        ) : null}
         <Toaster position="top-right" richColors/>
         <Header />
         {children}

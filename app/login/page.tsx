@@ -55,9 +55,20 @@ export default function LoginPage() {
         if (data.user) {
           useAuthStore.getState().setUser(data.user);
         }
+
+        const isSetupComplete = await useAuthStore
+          .getState()
+          .checkClientSetupStatus();
+
+        if (!isSetupComplete) {
+          toast.error("Please set up your account first");
+          router.replace("/profile/setup");
+          return;
+        }
+
         const redirect =
           new URLSearchParams(window.location.search).get("redirect") || "/";
-        router.push(redirect);
+        router.replace(redirect);
       } else {
         toast.error(data.message || "Login failed");
       }

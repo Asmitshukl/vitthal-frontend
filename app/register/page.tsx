@@ -167,7 +167,8 @@ export default function RegisterPage() {
         if (data.user) {
           useAuthStore.getState().setUser(data.user);
         }
-        router.push("/");
+        toast.success("Please complete your profile setup first");
+        router.replace("/profile/setup");
       } else {
         toast.error(data.message || "Invalid OTP");
       }

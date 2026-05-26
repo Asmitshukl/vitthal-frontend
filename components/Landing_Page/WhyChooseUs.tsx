@@ -45,7 +45,7 @@ export function WhyChooseUs() {
           {trustPoints.map((point) => {
             const Icon = point.icon;
             return (
-              <article
+              <article 
                 key={point.title}
                 className="group rounded-xl border border-zinc-200 bg-white p-6 shadow-sm transition-all hover:border-[#1d4ed8]/30 hover:shadow-md"
               >

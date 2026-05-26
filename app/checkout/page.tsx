@@ -25,13 +25,14 @@ interface ClientDetails {
 
 export default function CheckoutPage() {
     const router = useRouter();
-    const { isAuthenticated, isLoading: authLoading, fetchUser } = useAuthStore();
+    const { isAuthenticated, isLoading: authLoading, fetchUser, checkClientSetupStatus } = useAuthStore();
     const { items, totalPrice, fetchCart, clearCart } = useCartStore();
 
     const [clientDetails, setClientDetails] = useState<ClientDetails | null>(null);
     const [fetchingClient, setFetchingClient] = useState(true);
     const [placingOrder, setPlacingOrder] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
+    const [isSetupVerified, setIsSetupVerified] = useState(false);
 
     // Address form state
     const [showAddressForm, setShowAddressForm] = useState(false);
@@ -97,12 +98,24 @@ export default function CheckoutPage() {
     useEffect(() => {
         if (isAuthenticated) {
             const timer = window.setTimeout(() => {
-                void loadClientDetails();
+                void (async () => {
+                    const setupComplete = await checkClientSetupStatus();
+
+                    if (!setupComplete) {
+                        toast.error("Please set up your account first");
+                        router.replace("/profile/setup");
+                        setFetchingClient(false);
+                        return;
+                    }
+
+                    setIsSetupVerified(true);
+                    await loadClientDetails();
+                })();
             }, 0);
 
             return () => window.clearTimeout(timer);
         }
-    }, [isAuthenticated]);
+    }, [checkClientSetupStatus, isAuthenticated, router]);
 
     const getCurrentLocation = () => {
         if (!navigator.geolocation) {
@@ -194,7 +207,7 @@ export default function CheckoutPage() {
         }
     };
 
-    if (authLoading || fetchingClient) {
+    if (authLoading || fetchingClient || !isSetupVerified) {
         return (
             <div className="flex h-screen items-center justify-center bg-zinc-50">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600" />

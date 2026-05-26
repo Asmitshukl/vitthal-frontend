@@ -1,27 +1,39 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { MapPin, Loader2, Phone, CheckCircle } from "lucide-react";
-import { useAuthStore } from "@/store/authStore";
+import { AlertCircle, CheckCircle, Loader2, MapPin, Phone } from "lucide-react";
 
 type SetupStep = "contact" | "address";
 
+type PincodePlace = {
+  city: string;
+  state: string;
+  label: string;
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9000";
+
 export default function SetupProfile() {
   const router = useRouter();
-  useAuthStore();
   const [step, setStep] = useState<SetupStep>("contact");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isCheckingSetup, setIsCheckingSetup] = useState(true);
   const [isSetupComplete, setIsSetupComplete] = useState(false);
+  const [isPincodeLoading, setIsPincodeLoading] = useState(false);
+  const [cityFieldMode, setCityFieldMode] = useState<"manual" | "select">("manual");
+  const [cityOptions, setCityOptions] = useState<PincodePlace[]>([]);
 
   // Contact details
   const [phone, setPhone] = useState("");
 
   // Address details
-  const [address, setAddress] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [landmark, setLandmark] = useState("");
+  const [addressPhone, setAddressPhone] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [country, setCountry] = useState("India");
@@ -31,17 +43,13 @@ export default function SetupProfile() {
 
   async function checkSetupStatus() {
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/client/checkSetupStatus`,
-        {
-          credentials: "include",
-
-          headers: {
-            "Content-Type": "application/json",
-            "x-request-from": "client",
-          },
+      const res = await fetch(`${API_BASE}/api/client/checkSetupStatus`, {
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-from": "client",
         },
-      );
+      });
 
       if (res.ok) {
         const data = await res.json();
@@ -54,6 +62,50 @@ export default function SetupProfile() {
     }
   }
 
+  async function lookupPincode(pincodeValue: string) {
+    try {
+      const res = await fetch(`${API_BASE}/api/vendors/pincode/${pincodeValue}`, {
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data?.success) {
+        const places = Array.isArray(data.places) ? (data.places as PincodePlace[]) : [];
+        const normalizedPlaces = places
+          .filter((place) => typeof place.city === "string" && place.city.length > 0)
+          .map((place) => ({
+            city: place.city,
+            state: typeof place.state === "string" ? place.state : "",
+            label: place.label || (place.state ? `${place.city}, ${place.state}` : place.city),
+          }));
+
+        setState(data.state || "");
+        setCity("");
+        setCityOptions(normalizedPlaces);
+        setCityFieldMode("select");
+      } else {
+        setState("");
+        setCity("");
+        setCityOptions([]);
+        setCityFieldMode("manual");
+        toast.error(data?.message || "Could not auto-fill city and state. Please enter them manually.");
+      }
+    } catch (error) {
+      console.error("Error fetching pincode data:", error);
+      setState("");
+      setCity("");
+      setCityOptions([]);
+      setCityFieldMode("manual");
+      toast.error("Failed to fetch city and state. Please enter them manually.");
+    } finally {
+      setIsPincodeLoading(false);
+    }
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void checkSetupStatus();
@@ -61,6 +113,23 @@ export default function SetupProfile() {
 
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    const normalizedPincode = pincode.replace(/\D/g, "");
+
+    if (normalizedPincode.length !== 6) {
+      setCityOptions([]);
+      setCityFieldMode("manual");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsPincodeLoading(true);
+      void lookupPincode(normalizedPincode);
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [pincode]);
 
   const getCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -102,7 +171,7 @@ export default function SetupProfile() {
   const handleAddressSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!address || !city || !state || !country || !pincode) {
+    if (!addressLine1.trim() || !city || !state || !country || !pincode || !addressPhone.trim()) {
       toast.error("Please fill all address details");
       return;
     }
@@ -115,27 +184,32 @@ export default function SetupProfile() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/client/addClientDetails`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-request-from": "client",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            phone,
-            address,
-            city,
-            state,
-            country,
-            pincode,
-            latitude,
-            longitude,
-          }),
+      const combinedAddress = [addressLine1.trim(), addressLine2.trim(), landmark.trim()]
+        .filter(Boolean)
+        .join(", ");
+
+      const res = await fetch(`${API_BASE}/api/client/addClientDetails`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-from": "client",
         },
-      );
+        credentials: "include",
+        body: JSON.stringify({
+          phone: phone.trim(),
+          address: combinedAddress,
+          addressLine1: addressLine1.trim(),
+          addressLine2: addressLine2.trim(),
+          landmark: landmark.trim(),
+          addressPhone: addressPhone.trim(),
+          city,
+          state,
+          country,
+          pincode,
+          latitude,
+          longitude,
+        }),
+      });
 
       const data = await res.json();
 
@@ -187,7 +261,7 @@ export default function SetupProfile() {
               <p className="mt-2 text-sm text-zinc-600">
                 {step === "contact"
                   ? "We need your phone number for important updates"
-                  : "Provide your delivery location for faster shipping"}
+                  : "Provide a detailed delivery location. Pincode will auto-fill the state and city list."}
               </p>
               <div className="mt-6 flex justify-center gap-2">
                 <div
@@ -238,20 +312,87 @@ export default function SetupProfile() {
                 <form onSubmit={handleAddressSubmit} className="space-y-6">
                   <div>
                     <label
-                      htmlFor="address"
+                      htmlFor="addressLine1"
                       className="mb-2 block text-sm font-medium text-zinc-800"
                     >
-                      Street Address
+                      Address Line 1
                     </label>
                     <input
-                      id="address"
+                      id="addressLine1"
                       type="text"
                       required
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      placeholder="123 Industrial Area, Sector 5"
+                      value={addressLine1}
+                      onChange={(e) => setAddressLine1(e.target.value)}
+                      placeholder="House/Shop/Plot number, street name"
                       className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
                     />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="addressLine2"
+                      className="mb-2 block text-sm font-medium text-zinc-800"
+                    >
+                      Address Line 2
+                    </label>
+                    <input
+                      id="addressLine2"
+                      type="text"
+                      value={addressLine2}
+                      onChange={(e) => setAddressLine2(e.target.value)}
+                      placeholder="Area, locality, building, road"
+                      className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="landmark"
+                      className="mb-2 block text-sm font-medium text-zinc-800"
+                    >
+                      Landmark <span className="text-zinc-500">(optional)</span>
+                    </label>
+                    <input
+                      id="landmark"
+                      type="text"
+                      value={landmark}
+                      onChange={(e) => setLandmark(e.target.value)}
+                      placeholder="Nearby landmark"
+                      className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                    />
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Add this only if it helps the delivery person find your address faster.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="pincode"
+                      className="mb-2 block text-sm font-medium text-zinc-800"
+                    >
+                      Pincode
+                    </label>
+                    <input
+                      id="pincode"
+                      type="text"
+                      required
+                      maxLength={6}
+                      value={pincode}
+                      onChange={(e) =>
+                        setPincode(e.target.value.replace(/\D/g, ""))
+                      }
+                      placeholder="400001"
+                      className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                    />
+                    <p className="mt-1 text-xs text-blue-700">
+                      Enter pin code first to auto fill city and state.
+                    </p>
+                    {isPincodeLoading && (
+                      <p className="mt-2 flex items-center gap-2 text-xs text-blue-700">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Fetching city and state from your pincode...
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -262,15 +403,32 @@ export default function SetupProfile() {
                       >
                         City
                       </label>
-                      <input
-                        id="city"
-                        type="text"
-                        required
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        placeholder="Mumbai"
-                        className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
-                      />
+                      {cityFieldMode === "select" ? (
+                        <select
+                          id="city"
+                          required
+                          value={city}
+                          onChange={(e) => setCity(e.target.value)}
+                          className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                        >
+                          <option value="">Select city</option>
+                          {cityOptions.map((option) => (
+                            <option key={`${option.city}-${option.state}`} value={option.city}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id="city"
+                          type="text"
+                          required
+                          value={city}
+                          onChange={(e) => setCity(e.target.value)}
+                          placeholder="Mumbai"
+                          className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                        />
+                      )}
                     </div>
 
                     <div>
@@ -287,48 +445,48 @@ export default function SetupProfile() {
                         value={state}
                         onChange={(e) => setState(e.target.value)}
                         placeholder="Maharashtra"
-                        className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                        readOnly={cityFieldMode === "select"}
+                        className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30 read-only:bg-zinc-100"
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label
-                        htmlFor="country"
-                        className="mb-2 block text-sm font-medium text-zinc-800"
-                      >
-                        Country
-                      </label>
-                      <input
-                        id="country"
-                        type="text"
-                        required
-                        value={country}
-                        onChange={(e) => setCountry(e.target.value)}
-                        placeholder="India"
-                        className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
-                      />
-                    </div>
+                  <div>
+                    <label
+                      htmlFor="country"
+                      className="mb-2 block text-sm font-medium text-zinc-800"
+                    >
+                      Country
+                    </label>
+                    <input
+                      id="country"
+                      type="text"
+                      required
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      placeholder="India"
+                      className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                    />
+                  </div>
 
-                    <div>
-                      <label
-                        htmlFor="pincode"
-                        className="mb-2 block text-sm font-medium text-zinc-800"
-                      >
-                        Pincode
-                      </label>
+                  <div>
+                    <label
+                      htmlFor="addressPhone"
+                      className="mb-2 block text-sm font-medium text-zinc-800"
+                    >
+                      Address Mobile Number
+                    </label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" />
                       <input
-                        id="pincode"
-                        type="text"
+                        id="addressPhone"
+                        type="tel"
                         required
-                        maxLength={6}
-                        value={pincode}
-                        onChange={(e) =>
-                          setPincode(e.target.value.replace(/\D/g, ""))
-                        }
-                        placeholder="400001"
-                        className="h-11 w-full rounded-md border border-zinc-300 px-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
+                        value={addressPhone}
+                        onChange={(e) => setAddressPhone(e.target.value.replace(/\D/g, ""))}
+                        placeholder="10-digit delivery number"
+                        maxLength={10}
+                        className="h-11 w-full rounded-md border border-zinc-300 pl-10 pr-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-blue-600 focus:ring-1 focus:ring-blue-600/30"
                       />
                     </div>
                   </div>
@@ -359,6 +517,12 @@ export default function SetupProfile() {
                         )}
                       </button>
                     </div>
+                    {isPincodeLoading && (
+                      <p className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Looking up city and state from pincode...
+                      </p>
+                    )}
                     {latitude && longitude && (
                       <div className="mt-2 rounded-md bg-green-50 p-3 text-sm text-green-700">
                         <p>
